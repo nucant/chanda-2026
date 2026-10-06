@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Chanda 2026</title>
+  <meta name="description" content="Durga Puja chanda collection register">
+  <meta name="theme-color" content="#141414">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Chanda">
+  <meta name="format-detection" content="telephone=no">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="icon" href="favicon-32.png" sizes="32x32" type="image/png">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="author" content="nucant">
+  <!-- link preview (WhatsApp / Facebook / X) -->
+  <meta property="og:title" content="Chanda 2026 · দুর্গাপূজার চাঁদা">
+  <meta property="og:description" content="Durga Puja chanda collection, expenses and countdown — created by nucant">
+  <meta property="og:image" content="https://nucant.github.io/chanda-2026/og-image.png">
+  <meta property="og:type" content="website">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <script src="config.js"></script>
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <!-- loading screen -->
+  <div id="splash" class="splash" aria-label="Loading">
+    <img src="icon.svg" alt="" class="splash-logo">
+    <b>Chanda 2026</b>
+    <span class="bn">শুভ শারদীয়া</span>
+    <div class="splash-bar"><i></i></div>
+  </div>
+  <!-- Netflix-style profile picker + password -->
+  <div id="gate" class="gate" hidden></div>
+
+  <div id="app" hidden>
+    <header class="top">
+      <div class="top-row">
+        <div class="brand">
+          <img src="icon.svg" alt="" class="brand-logo">
+          <div>
+            <h1 id="title">Chanda 2026</h1>
+            <p id="titleBn" class="bn">দুর্গাপূজার চাঁদা</p>
+          </div>
+        </div>
+        <label class="search desk-only" id="deskSearchWrap"></label>
+        <div class="top-actions">
+          <button class="icon-btn" id="btnRefresh" aria-label="Refresh" title="Refresh"></button>
+          <button class="icon-btn" id="btnHistory" aria-label="Transaction history" title="Transaction history"></button>
+          <button class="seg-btn desk-only" id="btnExp" title="Expenses"></button>
+          <button class="icon-btn desk-only" id="btnSettings" aria-label="Settings" title="Settings"></button>
+          <button class="me" id="btnMe" title="My profile"></button>
+        </div>
+      </div>
+      <div class="sync-pill" id="syncPill" hidden></div>
+      <div class="progress-line" id="loadingBar"></div>
+    </header>
+
+    <div class="layout">
+      <aside class="side">
+        <section class="hero" id="hero"></section>
+        <section class="puja" id="puja"></section>
+        <section class="side-box desk-only" id="deskFilters"></section>
+        <section class="side-box desk-only" id="leader"></section>
+      </aside>
+
+      <main>
+        <div class="sticky-tools" id="tools">
+          <label class="search mob-only" id="mobSearchWrap"></label>
+          <div class="seg" id="sections" role="tablist"></div>
+          <div class="chips" id="status"></div>
+        </div>
+        <div class="list" id="list"></div>
+        <p class="list-end" id="listEnd"></p>
+      </main>
+    </div>
+
+
+    <button class="fab desk-only" id="btnAdd" aria-label="Add new name"></button>
+    <section class="exp-page" id="expView" hidden></section>
+
+    <button class="to-top" id="toTop" aria-label="Back to top" title="Back to top"></button>
+    <nav class="tabbar mob-only" id="tabbar" aria-label="Main"></nav>
+  </div>
+
+  <div id="sheetWrap" class="sheet-wrap" hidden>
+    <div class="backdrop" id="backdrop"></div>
+    <div class="sheet" id="sheet" role="dialog" aria-modal="true"></div>
+  </div>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <div id="print" class="print-area"></div>
+</body>
+</html>
