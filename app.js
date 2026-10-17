@@ -2,7 +2,7 @@
 (() => {
   "use strict";
 
-  const VERSION = "6.0";
+  const VERSION = "7.0";
   const CFG = window.CHANDA_CONFIG || {};
   const YEAR = CFG.YEAR || 2026;
   const desktopMQ = matchMedia("(min-width: 1024px)");
@@ -122,10 +122,11 @@
   async function load(silent, quiet) {
     if (!quiet) busy(true);
     try {
+      const before = S.rev;
       takeList(await api("list"));
       authFails = 0;
       reapplyQueue();
-      render();
+      if (!quiet || S.rev !== before || !before) render();
       if (current && !$("#sheetWrap").hidden) current = S.records.find((x) => x.row === current.row) || current;
       runQueue();
       if (!silent) toast("Updated");
@@ -151,14 +152,21 @@
 
   // every 5 s: tiny "anything changed?" call; full reload only when something changed (or once a minute)
   let autoBusy = false;
-  async function autoTick() {
-    if (document.hidden || $("#app").hidden || !S.pass || !S.api || autoBusy || qBusy || bgCount > 0 || S.busy > 0) return;
+  // background check: a tiny "anything changed?" call; the list is only downloaded when it did
+  async function autoTick(manual) {
+    if (!manual && (document.hidden || $("#app").hidden || !S.pass || !S.api || autoBusy || qBusy || bgCount > 0 || S.busy > 0)) return;
+    if (autoBusy) return;
     autoBusy = true;
+    if (manual) { refreshing++; renderSync(); }
     try {
       const d = await api("rev");
-      if (d.rev !== S.rev || Date.now() - S.lastLoad > 60000) await load(true, true);
-    } catch (e) { /* offline — try again next tick */ }
-    finally { autoBusy = false; }
+      if (d.rev !== S.rev) {
+        if (!manual) { refreshing++; renderSync(); }
+        try { await load(true, true); } finally { if (!manual) refreshing--; }
+        if (manual) pillFlash("Updated");
+      } else if (manual) pillFlash("Up to date");
+    } catch (e) { if (manual) toast(netMsg(e), true); }
+    finally { autoBusy = false; if (manual) refreshing--; renderSync(); }
   }
 
   function replaceRecord(rec) {
@@ -492,7 +500,6 @@
       queuePay(r, v, day);
       closeSheet();
       if (navigator.vibrate) navigator.vibrate(30);
-      toast(`${inr(v)} for ${r.en} — saving in background`);
     };
 
     const autoEd = autoBengali($("#edEn"), $("#edBn"), true);
@@ -509,7 +516,6 @@
       const payload = { ...ref(r), en, bn, loc, a24, a25 };
       local(r, (x) => { x.en = en; x.bn = bn; x.loc = loc; x.a24 = a24 === "" ? null : a24; x.a25 = a25 === "" ? null : a25; });
       bg("Edit", async () => { serverRec((await api("rename", payload)).record); return "Details updated ✓"; });
-      toast("Saving changes…");
     };
 
     if ($("#fixBtn")) $("#fixBtn").onclick = async () => {
@@ -603,25 +609,24 @@
     });
     const auto = autoBengali($("#adEn"), $("#adBn"));
     $("#adTr").onclick = () => withBtn($("#adTr"), () => auto.now(true));
-    $("#adSave").onclick = () => withBtn($("#adSave"), async () => {
+    $("#adSave").onclick = async () => {
       const en = $("#adEn").value.trim();
       if (!en) { toast("English name is required", true); $("#adEn").focus(); return; }
       const dup = S.records.find((r) => (r.en || "").toLowerCase() === en.toLowerCase() && (r.loc || "") === loc);
       if (dup && !(await ask({ icon: "👥", title: "Name already exists", text: `${B(dup.en)} is already in ${esc(secLabel(loc))}. Add again anyway?`, ok: "Add anyway" }))) return;
-      if (!$("#adBn").value.trim()) await auto.now(true);      // make sure the Bengali name is filled
+      // no waiting for the translation: if the Bengali box is still empty the server fills it in
       const amount = Number($("#adAmt").value) || "";
       const payload = { en, bn: $("#adBn").value.trim(), loc, amount };
       const tmp = { row: -Date.now(), sl: "", reg: "", en, bn: payload.bn, loc, a24: null, a25: null, a26: amount || null, by: amount ? S.user : "", hist: [], pending: true };
       S.records.push(tmp); render();
       closeSheet();
-      toast(`${en} — saving…`);
       bg("New name", async () => {
         const d = await api("add", payload);
         S.records = S.records.filter((x) => x !== tmp);
         replaceRecord(d.record); render();
         return `${en} added ✓`;
       });
-    });
+    };
     if (S.desk) setTimeout(() => $("#adEn") && $("#adEn").focus(), 60);
   }
 
@@ -683,7 +688,7 @@
     });
     $("#mRep").onclick = openReport;
     $("#mHist").onclick = () => openHistory();
-    $("#mRef").onclick = () => { closeSheet(); load(false); };
+    $("#mRef").onclick = () => { closeSheet(); autoTick(true); };
     if ($("#mAdmin")) $("#mAdmin").onclick = openAdmin;
     const mApi = $("#mApi");
     if (mApi) mApi.onclick = () => { store.set("api", null); S.api = ""; logout(); };
@@ -722,13 +727,13 @@
   function bg(label, fn) {
     bgCount++; renderSync();
     Promise.resolve().then(fn)
-      .then((msg) => { if (msg) toast(msg); })
+      .then(() => {})  // success is shown by the status pill
       .catch((e) => {
         if (e.code === "BAD_LOGIN" || e.code === "MUST_CHANGE") authFail(e.code);
         toast(`${label} NOT saved: ${netMsg(e)}`, true);
         load(true, true);                      // put the real data back on screen
       })
-      .finally(() => { bgCount--; renderSync(); });
+      .finally(() => { bgCount--; if (!bgCount && !S.queue.length) pillFlash("Saved"); else renderSync(); });
   }
   // change a record on screen right away (and refresh its open sheet)
   function local(r, change) {
@@ -744,11 +749,33 @@
     if (current && current.row === rec.row && !$("#sheetWrap").hidden) { $("#sheet").innerHTML = personHtml(current); wirePerson(); }
   }
 
+  // iOS-style status pill at the top: Saving… / Refreshing… with a thin progress bar,
+  // then a short "Saved ✓" / "Up to date ✓" before it slides away
+  let refreshing = 0, pillDone = null, pillTimer = null, savePeak = 0;
   function renderSync() {
-    const n = S.queue.length + bgCount, el = $("#syncPill");
+    const el = $("#syncPill");
     if (!el) return;
-    el.hidden = !n;
-    el.textContent = n ? `⏳ Saving ${n}…` : "";
+    const n = S.queue.length + bgCount;
+    savePeak = n ? Math.max(savePeak, n) : 0;
+    let icon, text, sub = "", prog = null;
+    if (n) {
+      icon = '<i class="pill-spin"></i>'; text = n > 1 ? `Saving ${n} changes` : "Saving";
+      sub = S.queue.length && !navigator.onLine ? "waiting for internet" : "in background";
+      prog = savePeak > 1 ? (savePeak - n) / savePeak : null;
+    } else if (refreshing) {
+      icon = '<i class="pill-spin"></i>'; text = "Refreshing"; sub = "getting latest data";
+    } else if (pillDone) {
+      icon = '<i class="pill-ok">✓</i>'; text = pillDone; sub = "";
+    } else { el.classList.remove("show"); return; }
+    el.innerHTML = `${icon}<span class="pill-t"><b>${text}</b>${sub ? `<small>${sub}</small>` : ""}</span>
+      <span class="pill-bar ${prog === null ? "indef" : ""}"><em style="${prog === null ? "" : `width:${Math.round(prog * 100)}%`}"></em></span>`;
+    el.hidden = false;
+    requestAnimationFrame(() => el.classList.add("show"));
+  }
+  function pillFlash(msg) {
+    pillDone = msg; renderSync();
+    clearTimeout(pillTimer);
+    pillTimer = setTimeout(() => { pillDone = null; renderSync(); }, 1600);
   }
 
   async function runQueue() {
@@ -765,7 +792,7 @@
           reapplyQueue();                         // keep later pending payments visible
           if (current && current.row === d.record.row) current = S.records.find((x) => x.row === d.record.row);
           render(); renderSync();
-          if (!S.queue.length) toast("All payments saved ✓");
+          if (!S.queue.length) pillFlash("Saved");
         } catch (e) {
           const refused = /sheet changed|row not found|valid amount|future/i.test(e.message || "");
           if (!refused) {   // offline, server busy, login hiccup … → keep it and retry later
@@ -927,8 +954,7 @@
       if (!(await ask({ icon: "🗑", danger: true, title: `Delete ${inr(e.amount)} expense?`, text: `${B(e.cat)}${e.party !== "Misc" ? " · " + B(e.party) : ""} on ${esc(fmtDate(e.date))}. A copy stays in the Expense Log tab.`, ok: "Delete" }))) return;
       closeSheet();
       S.exp = S.exp.filter((x) => x.id !== e.id); renderExp();
-      try { await api("exp_del", { id: e.id }); toast("Expense deleted"); }
-      catch (er) { toast("Could not delete: " + netMsg(er), true); load(true, true); }
+      bg("Delete expense", () => api("exp_del", { id: e.id }));
     };
   }
 
@@ -936,32 +962,31 @@
   async function saveExpNew(data) {
     const tmp = { id: "tmp-" + Date.now(), pending: true, by: S.user, time: "", hist: [], ...data };
     S.exp.push(tmp); renderExp();
-    toast(`${inr(data.amount)} expense — saving…`);
+    bgCount++; renderSync();
     try {
       const d = await api("exp_add", data);
       S.exp = S.exp.map((x) => (x.id === tmp.id ? d.expense : x));
       if (d.parties) S.parties = d.parties;
       store.set("expCache", JSON.stringify(S.exp)); renderExp();
-      toast("Expense saved ✓");
     } catch (er) {
       S.exp = S.exp.filter((x) => x.id !== tmp.id); renderExp();
       toast("Expense NOT saved: " + netMsg(er), true);
-    }
+    } finally { bgCount--; if (!bgCount && !S.queue.length) pillFlash("Saved"); else renderSync(); }
   }
 
   async function saveExpEdit(e, data) {
     const before = { ...e };
     Object.assign(e, data, { pending: true }); renderExp();
+    bgCount++; renderSync();
     try {
       const d = await api("exp_edit", { id: e.id, ...data });
       S.exp = S.exp.map((x) => (x.id === e.id ? d.expense : x));
       if (d.parties) S.parties = d.parties;
       store.set("expCache", JSON.stringify(S.exp)); renderExp();
-      toast("Expense updated ✓");
     } catch (er) {
       Object.assign(e, before, { pending: false }); renderExp();
       toast("Change NOT saved: " + netMsg(er), true);
-    }
+    } finally { bgCount--; if (!bgCount && !S.queue.length) pillFlash("Saved"); else renderSync(); }
   }
 
   function printExpenses() {
@@ -1109,7 +1134,6 @@
       } else {
         const tmp = { id: "tmp-" + Date.now(), pending: true, by: S.user, time: "", hist: [], ...data };
         S.don.push(tmp); renderDon();
-        toast(`${type === IN_KIND ? "Item" : inr(amount)} donation — saving…`);
         bg("Donation", async () => {
           const r = await api("don_add", data);
           S.don = S.don.map((x) => (x.id === tmp.id ? r.donation : x)); store.set("donCache", JSON.stringify(S.don)); renderDon();
@@ -1678,7 +1702,7 @@
       <input id="q" type="search" inputmode="search" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Search name / নাম খুঁজুন">
       <button class="search-clear" id="qClear" aria-label="Clear search" hidden>×</button></span>`;
 
-    $("#btnRefresh").onclick = () => load(false);
+    $("#btnRefresh").onclick = () => autoTick(true);
     $("#btnHistory").onclick = () => openHistory();
     $("#btnMe").onclick = openProfile;
     $("#toTop").innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>';
@@ -1749,18 +1773,23 @@
     window.addEventListener("beforeunload", (e) => { if (S.queue.length) { e.preventDefault(); e.returnValue = ""; } });
     document.addEventListener("visibilitychange", () => {
       if (!document.hidden) runQueue();
-      if (!document.hidden && S.pass && S.api && !$("#app").hidden && Date.now() - S.lastLoad > 60000 && $("#sheetWrap").hidden) load(true);
+      if (!document.hidden) autoTick(false);       // back in the app → quick check for changes
     });
 
     try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch (e) {}
     setInterval(tickPuja, 1000);
     renderSync();
-    setInterval(autoTick, 5000);
+    setInterval(() => autoTick(false), 10000);
     if (S.user && S.pass && S.api) {
-      enterApp();                                   // cached list renders under the splash
-      const t0 = Date.now();
-      const fail = setTimeout(hideSplash, 7000);    // slow network: show cached data anyway
-      load(true, true).finally(() => { clearTimeout(fail); setTimeout(hideSplash, Math.max(0, 900 - (Date.now() - t0))); });
+      enterApp();                                   // saved list renders straight away
+      if (S.records.length) {                       // have data on this phone → open now, update quietly
+        setTimeout(hideSplash, 700);
+        refreshing++; renderSync();
+        load(true, true).finally(() => { refreshing--; renderSync(); });
+      } else {                                      // first time on this phone → wait for the data
+        const fail = setTimeout(hideSplash, 8000);
+        load(true, true).finally(() => { clearTimeout(fail); hideSplash(); });
+      }
     } else {
       showProfiles();
       setTimeout(hideSplash, 900);
