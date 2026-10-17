@@ -30,6 +30,7 @@
     pen: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg>',
     key: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="15" r="4"/><path d="m11 12 9-9M17 6l3 3M15 8l2 2"/></svg>',
     clock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/></svg>',
+    gift: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="8" width="18" height="4" rx="1"/><path d="M5 12v9h14v-9M12 8v13"/><path d="M12 8c-2-4-6-4-6-1.5S10 8 12 8zM12 8c2-4 6-4 6-1.5S14 8 12 8z"/></svg>',
     home: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9v11h5v-6h4v6h5V9"/></svg>',
     wallet: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6M9 16h3"/></svg>',
     user: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7"/></svg>',
@@ -47,6 +48,8 @@
     isAdmin: store.get("isAdmin") === "1",
     records: store.json("cache", []),
     exp: store.json("expCache", []),
+    don: store.json("donCache", []),
+    donFilter: "all",
     parties: store.json("parties", ["Misc"]),
     expFilter: "all",
     section: store.get("section", "all"),
@@ -105,6 +108,7 @@
   function takeList(d) {
     S.records = d.records || [];
     if (d.expenses) { S.exp = d.expenses; store.set("expCache", JSON.stringify(S.exp)); }
+    if (d.donations) { S.don = d.donations; store.set("donCache", JSON.stringify(S.don)); }
     if (d.parties) { S.parties = d.parties; store.set("parties", JSON.stringify(S.parties)); }
     if (d.collectors && d.collectors.length) { S.profiles = d.collectors; store.set("profiles", JSON.stringify(d.collectors)); }
     if (d.admin) { S.admin = d.admin; store.set("admin", d.admin); }
@@ -119,21 +123,36 @@
     if (!quiet) busy(true);
     try {
       takeList(await api("list"));
+      authFails = 0;
       reapplyQueue();
       render();
       if (current && !$("#sheetWrap").hidden) current = S.records.find((x) => x.row === current.row) || current;
       runQueue();
       if (!silent) toast("Updated");
     } catch (e) {
-      if (e.code === "BAD_LOGIN" || e.code === "MUST_CHANGE") logout("Please log in again");
+      if (e.code === "BAD_LOGIN" || e.code === "MUST_CHANGE") authFail(e.code);
       else if (!quiet) toast(netMsg(e), true);
     } finally { if (!quiet) busy(false); }
+  }
+
+  // A refused password is re-checked twice (7 s apart) before logging out, so a hiccup on the
+  // server can never throw anyone out. Only a real password change / reset ends the session.
+  let authFails = 0, authTimer = null;
+  function authFail(code) {
+    authFails++;
+    if (authFails >= 3 || code === "MUST_CHANGE") {
+      authFails = 0;
+      logout(code === "MUST_CHANGE" ? "Your password was reset — set a new one" : "Your password was changed — please log in again");
+      return;
+    }
+    clearTimeout(authTimer);
+    authTimer = setTimeout(() => load(true, true), 7000);
   }
 
   // every 5 s: tiny "anything changed?" call; full reload only when something changed (or once a minute)
   let autoBusy = false;
   async function autoTick() {
-    if (document.hidden || $("#app").hidden || !S.pass || !S.api || autoBusy || qBusy || S.busy > 0) return;
+    if (document.hidden || $("#app").hidden || !S.pass || !S.api || autoBusy || qBusy || bgCount > 0 || S.busy > 0) return;
     autoBusy = true;
     try {
       const d = await api("rev");
@@ -195,6 +214,7 @@
     renderList();
     renderPuja();
     if (S.tab === "expenses") renderExp();
+    if (S.tab === "donations") renderDon();
     if (S.desk) { renderDeskFilters(); renderLeader(); }
     $("#btnMe").innerHTML = tile(S.user);
     measure();
@@ -355,6 +375,7 @@
   function openPerson(row) {
     const r = S.records.find((x) => x.row === row);
     if (!r) return;
+    if (r.pending) { toast("Still saving this name — one moment"); return; }
     current = r;
     openSheet(personHtml(r));
     wirePerson();
@@ -436,24 +457,31 @@
 
     const pd = $("#payDate");
     pd.onchange = () => { $("#payDateNote").textContent = !pd.value || pd.value === istDay() ? "Today" : "Back-dated"; };
-    $$("[data-del]", $("#sheet")).forEach((b) => b.onclick = () => withBtn(b, async () => {
-      if (!(await ask({ icon: "🗑", danger: true, title: `Delete ${inr(b.dataset.amt)} entry?`, text: `This amount comes off ${B(r.en)}'s ${YEAR} total.`, ok: "Delete" }))) return;
-      const d = await api("delpay", { ...ref(r), amt: Number(b.dataset.amt), key: b.dataset.del });
-      done(d.record, `${inr(b.dataset.amt)} entry deleted`);
-    }));
-    if ($("#clearBtn")) $("#clearBtn").onclick = () => withBtn($("#clearBtn"), async () => {
-      if (!(await ask({ icon: "🧹", danger: true, title: `Clear all ${YEAR} entries?`, text: `Every ${YEAR} payment of ${B(r.en)} will be removed. You can add the correct amount again right after.`, ok: "Clear all" }))) return;
-      const d = await api("clearpay", { ...ref(r) });
-      done(d.record, "All entries cleared — add the correct amount now");
+    $$("[data-del]", $("#sheet")).forEach((b) => b.onclick = async () => {
+      const amt = Number(b.dataset.amt), key = b.dataset.del;
+      if (!(await ask({ icon: "🗑", danger: true, title: `Delete ${inr(amt)} entry?`, text: `This amount comes off ${B(r.en)}'s ${YEAR} total.`, ok: "Delete" }))) return;
+      const payload = { ...ref(r), amt, key };
+      local(r, (x) => {
+        const i = (x.hist || []).findIndex((h) => Number(h.amt) === amt && String(h.ts || h.date || "") === key && !isSet(h));
+        if (i >= 0) x.hist.splice(i, 1);
+        x.a26 = Math.max(0, (Number(x.a26) || 0) - amt) || null;
+      });
+      bg("Delete", async () => { serverRec((await api("delpay", payload)).record); return `${inr(amt)} entry deleted ✓`; });
     });
-    $("#delNameBtn").onclick = () => withBtn($("#delNameBtn"), async () => {
+    if ($("#clearBtn")) $("#clearBtn").onclick = async () => {
+      if (!(await ask({ icon: "🧹", danger: true, title: `Clear all ${YEAR} entries?`, text: `Every ${YEAR} payment of ${B(r.en)} will be removed. You can add the correct amount again right after.`, ok: "Clear all" }))) return;
+      const payload = { ...ref(r) };
+      local(r, (x) => { x.a26 = null; x.hist = []; x.by = ""; });
+      bg("Clear all", async () => { serverRec((await api("clearpay", payload)).record); return "All entries cleared ✓"; });
+    };
+    $("#delNameBtn").onclick = async () => {
       if (!(await ask({ icon: "⚠️", danger: true, title: "Delete this name?", text: `${B(r.en)} will be removed from the register for every year. A copy of all their details stays in the Payments log.`, ok: "Yes, delete" }))) return;
       if (!(await ask({ icon: "⚠️", danger: true, title: "Are you sure?", text: `Last check — delete ${B(r.en)}?`, ok: "Delete for good" }))) return;
-      await api("delname", { ...ref(r) });
+      const payload = { ...ref(r) };
       closeSheet(true);
-      toast(`${r.en} deleted`);
-      await load(true);
-    });
+      S.records = S.records.filter((x) => x !== r); render();
+      bg("Delete name", async () => { await api("delname", payload); await load(true, true); return `${r.en} deleted ✓`; });
+    };
 
     $("#payBtn").onclick = async () => {
       const v = Number(amt.value);
@@ -471,26 +499,30 @@
     $$("#edLoc button").forEach((b) => b.onclick = () => $$("#edLoc button").forEach((x) => x.classList.toggle("on", x === b)));
     $("#edTr").onclick = () => withBtn($("#edTr"), () => autoEd.now(true));
 
-    $("#edSave").onclick = () => withBtn($("#edSave"), async () => {
+    $("#edSave").onclick = () => {
       const en = $("#edEn").value.trim(), bn = $("#edBn").value.trim();
       if (!en) { toast("English name is required", true); return; }
       const raw24 = $("#edA24").value.trim(), raw25 = $("#edA25").value.trim();
       if ([raw24, raw25].some((v) => v !== "" && !(Number(v) >= 0))) { toast("Enter a valid amount", true); return; }
       const loc = ($("#edLoc .on") || {}).dataset ? $("#edLoc .on").dataset.l : (r.loc || "");
-      const d = await api("rename", { ...ref(r), en, bn, loc,
-        a24: raw24 === "" ? "" : Number(raw24), a25: raw25 === "" ? "" : Number(raw25) });
-      done(d.record, "Details updated");
-    });
+      const a24 = raw24 === "" ? "" : Number(raw24), a25 = raw25 === "" ? "" : Number(raw25);
+      const payload = { ...ref(r), en, bn, loc, a24, a25 };
+      local(r, (x) => { x.en = en; x.bn = bn; x.loc = loc; x.a24 = a24 === "" ? null : a24; x.a25 = a25 === "" ? null : a25; });
+      bg("Edit", async () => { serverRec((await api("rename", payload)).record); return "Details updated ✓"; });
+      toast("Saving changes…");
+    };
 
-    if ($("#fixBtn")) $("#fixBtn").onclick = () => withBtn($("#fixBtn"), async () => {
+    if ($("#fixBtn")) $("#fixBtn").onclick = async () => {
       const raw = $("#fixAmt").value.trim();
       if (raw !== "" && !(Number(raw) >= 0)) { toast("Enter a valid amount", true); return; }
       if (!(await ask(raw === ""
         ? { icon: "✏️", danger: true, title: `Mark as not paid?`, text: `${B(r.en)}'s ${YEAR} total will be emptied.`, ok: "Mark not paid" }
         : { icon: "✏️", title: `Set total to ${inr(raw)}?`, text: `${B(r.en)}'s ${YEAR} total becomes exactly ${inr(raw)}.`, ok: "Set total" }))) return;
-      const d = await api("override", { ...ref(r), amount: raw === "" ? "" : Number(raw) });
-      done(d.record, "Total corrected");
-    });
+      const amount = raw === "" ? "" : Number(raw);
+      const payload = { ...ref(r), amount };
+      local(r, (x) => { x.a26 = amount === "" ? null : amount; x.hist = (x.hist || []).concat([{ amt: amount || 0, type: "set", date: "Saving…", by: S.user, pending: "fix" }]); });
+      bg("Correction", async () => { serverRec((await api("override", payload)).record); return "Total corrected ✓"; });
+    };
   }
 
   const ref = (r) => ({ row: r.row, sl: r.sl, en0: r.en });
@@ -539,7 +571,7 @@
     busy(true);
     try { await fn(); }
     catch (e) {
-      if (e.code === "BAD_LOGIN" || e.code === "MUST_CHANGE") logout("Please log in again");
+      if (e.code === "BAD_LOGIN" || e.code === "MUST_CHANGE") { toast("Checking your login… try again in a moment", true); authFail(e.code); }
       else toast(netMsg(e), true);
     } finally {
       busy(false);
@@ -578,11 +610,17 @@
       if (dup && !(await ask({ icon: "👥", title: "Name already exists", text: `${B(dup.en)} is already in ${esc(secLabel(loc))}. Add again anyway?`, ok: "Add anyway" }))) return;
       if (!$("#adBn").value.trim()) await auto.now(true);      // make sure the Bengali name is filled
       const amount = Number($("#adAmt").value) || "";
-      const d = await api("add", { en, bn: $("#adBn").value.trim(), loc, amount });
-      replaceRecord(d.record);
-      render();
+      const payload = { en, bn: $("#adBn").value.trim(), loc, amount };
+      const tmp = { row: -Date.now(), sl: "", reg: "", en, bn: payload.bn, loc, a24: null, a25: null, a26: amount || null, by: amount ? S.user : "", hist: [], pending: true };
+      S.records.push(tmp); render();
       closeSheet();
-      toast(`${en} added`);
+      toast(`${en} — saving…`);
+      bg("New name", async () => {
+        const d = await api("add", payload);
+        S.records = S.records.filter((x) => x !== tmp);
+        replaceRecord(d.record); render();
+        return `${en} added ✓`;
+      });
     });
     if (S.desk) setTimeout(() => $("#adEn") && $("#adEn").focus(), 60);
   }
@@ -679,8 +717,35 @@
     S.queue.forEach((it) => { const r = S.records.find((x) => x.row === it.row); if (r) applyPending(r, it); });
   }
 
+  // generic background save: the screen updates at once, the server call runs behind the scenes
+  let bgCount = 0;
+  function bg(label, fn) {
+    bgCount++; renderSync();
+    Promise.resolve().then(fn)
+      .then((msg) => { if (msg) toast(msg); })
+      .catch((e) => {
+        if (e.code === "BAD_LOGIN" || e.code === "MUST_CHANGE") authFail(e.code);
+        toast(`${label} NOT saved: ${netMsg(e)}`, true);
+        load(true, true);                      // put the real data back on screen
+      })
+      .finally(() => { bgCount--; renderSync(); });
+  }
+  // change a record on screen right away (and refresh its open sheet)
+  function local(r, change) {
+    change(r);
+    store.set("cache", JSON.stringify(S.records));
+    render();
+    if (current && current.row === r.row && !$("#sheetWrap").hidden) { current = r; $("#sheet").innerHTML = personHtml(r); wirePerson(); }
+  }
+  function serverRec(rec) {
+    replaceRecord(rec); reapplyQueue();
+    if (current && current.row === rec.row) current = S.records.find((x) => x.row === rec.row);
+    render();
+    if (current && current.row === rec.row && !$("#sheetWrap").hidden) { $("#sheet").innerHTML = personHtml(current); wirePerson(); }
+  }
+
   function renderSync() {
-    const n = S.queue.length, el = $("#syncPill");
+    const n = S.queue.length + bgCount, el = $("#syncPill");
     if (!el) return;
     el.hidden = !n;
     el.textContent = n ? `⏳ Saving ${n}…` : "";
@@ -702,9 +767,10 @@
           render(); renderSync();
           if (!S.queue.length) toast("All payments saved ✓");
         } catch (e) {
-          if (e instanceof TypeError || /Server error 5/.test(e.message)) {   // offline / server busy → retry later
+          const refused = /sheet changed|row not found|valid amount|future/i.test(e.message || "");
+          if (!refused) {   // offline, server busy, login hiccup … → keep it and retry later
             qTimer = setTimeout(runQueue, 15000);
-            toast("No internet — payment kept, will retry", true);
+            toast(e instanceof TypeError ? "No internet — payment kept, will retry" : "Server busy — payment kept, will retry", true);
             break;
           }
           // the sheet refused it (wrong row, login changed …) → drop it and reload real data
@@ -749,7 +815,7 @@
   function renderExp() {
     const el = $("#expView");
     if (!el) return;
-    const got = collected(), out = spent(), bal = got - out;
+    const chanda = collected(), dons = donCash(), got = chanda + dons, out = spent(), bal = got - out;
     const list = S.exp.filter(expMatches).sort(expSort);
     const byCat = groupSum("cat"), byParty = groupSum("party");
     const maxCat = byCat.length ? byCat[0][1] : 0;
@@ -770,7 +836,7 @@
     });
     el.innerHTML = `<div class="exp-left">
       <div class="exp-sum">
-        <div><span>Collected</span><b>${inr(got)}</b></div>
+        <div><span>Chanda + donations</span><b>${inr(got)}</b><small class="sub">${inr(chanda)} + ${inr(dons)}</small></div>
         <div><span>Spent</span><b class="neg">${inr(out)}</b></div>
         <div class="bal ${bal < 0 ? "minus" : ""}"><span>Balance in hand${bal < 0 ? " · spent more than collected" : ""}</span><b>${bal < 0 ? "− " + inr(-bal) : inr(bal)}</b></div>
       </div>
@@ -907,7 +973,7 @@
         <div><h1>${esc(CFG.TITLE || "Chanda " + YEAR)} — Expense report</h1><div class="bn">খরচের হিসাব</div></div>
         <div class="r">${now.toLocaleDateString("en-GB")} ${now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}${S.user ? "<br>by " + esc(S.user) : ""}</div>
       </div>
-      <div class="p-sum"><span>Collected: <b>${inr(got)}</b></span><span>Spent: <b>${inr(out)}</b></span><span>Balance: <b>${inr(got - out)}</b></span><span>Entries: <b>${list.length}</b></span></div>
+      <div class="p-sum"><span>Chanda: <b>${inr(got)}</b></span><span>Donations: <b>${inr(donCash())}</b></span><span>Spent: <b>${inr(out)}</b></span><span>Balance: <b>${inr(got + donCash() - out)}</b></span><span>Entries: <b>${list.length}</b></span></div>
       <div class="p-sum">${groupSum("cat").map(([c, v]) => `<span>${esc(c)}: <b>${inr(v)}</b></span>`).join("")}</div>
       <table class="p">
         <thead><tr><th class="c">#</th><th>Date</th><th>What for</th><th>Party</th><th>Paid by</th><th>Note</th><th class="n">Amount</th></tr></thead>
@@ -917,6 +983,168 @@
     closeSheet();
     const old = document.title;
     document.title = `Chanda_${YEAR}_Expenses`;
+    setTimeout(() => { window.print(); document.title = old; }, 50);
+  }
+
+  // ---------- DONATIONS ----------
+  const DON_TYPES = [["Cash", "💵"], ["Govt support", "🏛️"], ["Sponsor / Ad", "📣"], ["Online / UPI", "📱"], ["Item (in kind)", "🎁"], ["Other", "✨"]];
+  const IN_KIND = "Item (in kind)";
+  const donIcon = (t) => (DON_TYPES.find(([n]) => n === t) || [0, "🎁"])[1];
+  const donCash = (list = S.don) => list.filter((d) => d.type !== IN_KIND).reduce((t, d) => t + (Number(d.amount) || 0), 0);
+
+  function donMatches(d) {
+    const f = S.donFilter;
+    if (f === "all") return true;
+    if (f === "today") return d.date === istDay();
+    if (f === "mine") return d.by === S.user;
+    return d.type === f;
+  }
+
+  function renderDon() {
+    const el = $("#donView");
+    if (!el) return;
+    const list = S.don.filter(donMatches).sort(expSort);
+    const byType = {};
+    S.don.forEach((d) => { byType[d.type] = (byType[d.type] || 0) + (Number(d.amount) || 0); });
+    const types = Object.entries(byType).sort((a, b) => b[1] - a[1]);
+    const max = types.length ? Math.max(...types.map((x) => x[1])) : 0;
+    const items = S.don.filter((d) => d.type === IN_KIND).length;
+    let rows = "", lastDay = null;
+    list.forEach((d) => {
+      if (d.date !== lastDay) {
+        rows += `<div class="tx-day"><span>${d.date === istDay() ? "Today" : fmtDate(d.date)}</span><b>${inr(donCash(list.filter((x) => x.date === d.date)))}</b></div>`;
+        lastDay = d.date;
+      }
+      const kind = d.type === IN_KIND;
+      rows += `<button class="tx" data-don="${esc(d.id)}">
+        <span class="exp-ico">${donIcon(d.type)}</span>
+        <span class="tx-who"><b>${esc(d.from || "Anonymous")}</b>
+          <small>${d.pending ? "⏳ saving · " : ""}${esc(d.type)}${d.note ? " · " + esc(d.note) : ""} · ${esc(d.by)}</small></span>
+        <span class="tx-amt ${kind ? "kind" : ""}">${kind ? (d.amount ? "≈ " + inr(d.amount) : "Item") : "+ " + inr(d.amount)}</span></button>`;
+    });
+    const chips = [["all", "All"], ["today", "Today"], ["mine", "Mine"], ...types.map(([t]) => [t, donIcon(t) + " " + t])];
+    el.innerHTML = `<div class="exp-left">
+      <div class="exp-sum">
+        <div class="bal don"><span>Donations received (cash)</span><b>${inr(donCash())}</b></div>
+        <div><span>Donors</span><b>${S.don.length}</b></div>
+        <div><span>Items in kind</span><b>${items}</b></div>
+      </div>
+      <button class="btn block exp-add" id="donAddBtn">${I.plus} Add donation</button>
+      ${types.length ? `<div class="exp-box"><h4>By type</h4>
+        ${types.map(([t, v]) => `<button class="cat-row" data-df="${esc(t)}"><span>${donIcon(t)} ${esc(t)}</span><i><em style="width:${max ? Math.max(4, Math.round(v / max * 100)) : 0}%"></em></i><b>${t === IN_KIND ? (v ? "≈ " + inr(v) : "—") : inr(v)}</b></button>`).join("")}
+      </div>` : ""}
+      </div><div class="exp-right">
+      <div class="chips exp-chips">${chips.map(([v, t]) => `<button class="chip ${S.donFilter === v ? "on" : ""}" data-df="${esc(v)}">${esc(t)}</button>`).join("")}</div>
+      <div class="exp-list">${rows || `<div class="empty"><b>No donations yet</b>Tap “Add donation” to record cash, govt support, sponsors or items.</div>`}</div>
+      ${list.length ? `<p class="list-end">${list.length} donations · ${inr(donCash(list))} cash</p>` : ""}${CREDIT}</div>`;
+    $("#donAddBtn").onclick = () => openDonForm();
+    $$("[data-df]", el).forEach((b) => b.onclick = () => { S.donFilter = S.donFilter === b.dataset.df && b.dataset.df !== "all" ? "all" : b.dataset.df; renderDon(); });
+    $$("[data-don]", el).forEach((b) => b.onclick = () => {
+      const d = S.don.find((x) => x.id === b.dataset.don);
+      if (d && !d.pending) openDonForm(d);
+    });
+  }
+
+  function openDonForm(d) {
+    const edit = !!d;
+    let type = edit ? d.type : "Cash";
+    openSheet(`
+      <div class="sheet-head"><div class="grow"><h2>${edit ? "Edit donation" : "Add donation"}</h2><div class="muted">Received by ${esc(edit ? d.by : S.user)}</div></div>${closeBtn()}</div>
+      <div class="form">
+        <label class="lbl">Type *</label>
+        <div class="opts cat-opts" id="dnType">${DON_TYPES.map(([n, ic]) => `<button type="button" data-t="${esc(n)}" class="${n === type ? "on" : ""}">${ic} ${esc(n)}</button>`).join("")}</div>
+        <label class="lbl" for="dnAmt" id="dnAmtL">Amount *</label>
+        <div class="money big"><input id="dnAmt" type="number" inputmode="numeric" pattern="[0-9]*" min="0" placeholder="0" value="${edit && d.amount ? Number(d.amount) : ""}"></div>
+        <label class="lbl" for="dnFrom">From (donor / department / sponsor)</label>
+        <input class="field" id="dnFrom" placeholder="e.g. West Bengal Govt · Rahul Das" autocomplete="off" value="${edit && d.from !== "Anonymous" ? esc(d.from) : ""}">
+        <div class="opts party-sug" id="dnSug"></div>
+        <label class="lbl" for="dnNote" id="dnNoteL">Details</label>
+        <input class="field" id="dnNote" placeholder="optional" value="${edit ? esc(d.note) : ""}">
+        <label class="lbl" for="dnDate">📅 Date</label>
+        <input class="field" id="dnDate" type="date" value="${edit ? esc(d.date) : istDay()}" max="${istDay()}">
+        <button class="btn block" id="dnSave" style="margin-top:14px">${I.check} ${edit ? "Save changes" : "Save donation"}</button>
+        ${edit ? `<button class="btn ghost block del-name" id="dnDel" style="margin-top:8px">🗑 Delete this donation</button>
+          ${d.hist && d.hist.length > 1 ? `<h3>Changes</h3><div class="hist">${d.hist.slice().reverse().map((h) => `<div class="hist-item"><div class="t"><b>${esc(h.what)}</b><div>${esc(h.at)}</div></div><span class="by">${esc(h.by)}</span></div>`).join("")}</div>` : ""}` : ""}
+      </div>`);
+    const setLabels = () => {
+      const kind = type === IN_KIND;
+      $("#dnAmtL").textContent = kind ? "Approx. value (optional)" : "Amount *";
+      $("#dnNoteL").textContent = kind ? "What item? *" : type === "Govt support" ? "Details (scheme / order no.)" : "Details";
+      $("#dnNote").placeholder = kind ? "e.g. 2 saris for the idol, 10 kg rice" : "optional";
+    };
+    setLabels();
+    $$("button", $("#dnType")).forEach((b) => b.onclick = () => {
+      type = b.dataset.t; setLabels();
+      $$("button", $("#dnType")).forEach((x) => x.classList.toggle("on", x === b));
+      if (type === "Govt support" && !$("#dnFrom").value.trim()) $("#dnFrom").value = "West Bengal Govt";
+    });
+    const from = $("#dnFrom");
+    const sug = () => {
+      const q = from.value.trim().toLowerCase();
+      const pool = [...new Set(S.don.slice().sort(expSort).map((x) => x.from).filter((x) => x && x !== "Anonymous"))]
+        .filter((x) => (!q || x.toLowerCase().includes(q)) && x.toLowerCase() !== q);
+      $("#dnSug").innerHTML = pool.slice(0, 8).map((x) => `<button type="button" data-p="${esc(x)}">${esc(x)}</button>`).join("");
+      $$("button", $("#dnSug")).forEach((b) => b.onclick = () => { from.value = b.dataset.p; sug(); });
+    };
+    from.oninput = sug; sug();
+
+    $("#dnSave").onclick = async () => {
+      const amount = Number($("#dnAmt").value) || 0, note = $("#dnNote").value.trim(), date = $("#dnDate").value || istDay();
+      if (type !== IN_KIND && !(amount > 0)) { toast("Enter the amount", true); $("#dnAmt").focus(); return; }
+      if (type === IN_KIND && !note) { toast("Write what item was given", true); $("#dnNote").focus(); return; }
+      if (date > istDay()) { toast("Date cannot be in the future", true); return; }
+      if (amount >= 50000 && !(await ask({ icon: "💰", title: `Save ${inr(amount)}?`, text: `That's a big donation — just checking it's right.`, ok: "Yes, save" }))) return;
+      const data = { type, amount, from: from.value.trim() || "Anonymous", note, date };
+      closeSheet();
+      if (navigator.vibrate) navigator.vibrate(30);
+      if (edit) {
+        const before = { ...d };
+        Object.assign(d, data, { pending: true }); renderDon();
+        bg("Donation", async () => {
+          const r = await api("don_edit", { id: d.id, ...data });
+          S.don = S.don.map((x) => (x.id === d.id ? r.donation : x)); store.set("donCache", JSON.stringify(S.don)); renderDon();
+          return "Donation updated ✓";
+        });
+        void before;
+      } else {
+        const tmp = { id: "tmp-" + Date.now(), pending: true, by: S.user, time: "", hist: [], ...data };
+        S.don.push(tmp); renderDon();
+        toast(`${type === IN_KIND ? "Item" : inr(amount)} donation — saving…`);
+        bg("Donation", async () => {
+          const r = await api("don_add", data);
+          S.don = S.don.map((x) => (x.id === tmp.id ? r.donation : x)); store.set("donCache", JSON.stringify(S.don)); renderDon();
+          return "Donation saved ✓";
+        });
+      }
+    };
+    if (edit) $("#dnDel").onclick = async () => {
+      if (!(await ask({ icon: "🗑", danger: true, title: "Delete this donation?", text: `${B(d.type)} · ${d.amount ? inr(d.amount) : ""} from ${B(d.from)}. A copy stays in the Donation Log tab.`, ok: "Delete" }))) return;
+      closeSheet();
+      S.don = S.don.filter((x) => x.id !== d.id); renderDon();
+      bg("Delete donation", async () => { await api("don_del", { id: d.id }); return "Donation deleted ✓"; });
+    };
+  }
+
+  function printDonations() {
+    const list = S.don.slice().sort((a, b) => -expSort(a, b));
+    const now = new Date();
+    const byType = {};
+    S.don.forEach((d) => { byType[d.type] = (byType[d.type] || 0) + (Number(d.amount) || 0); });
+    $("#print").innerHTML = `
+      <div class="p-head">
+        <div><h1>${esc(CFG.TITLE || "Chanda " + YEAR)} — Donation report</h1><div class="bn">অনুদান</div></div>
+        <div class="r">${now.toLocaleDateString("en-GB")} ${now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}${S.user ? "<br>by " + esc(S.user) : ""}</div>
+      </div>
+      <div class="p-sum"><span>Cash donations: <b>${inr(donCash())}</b></span><span>Entries: <b>${list.length}</b></span></div>
+      <div class="p-sum">${Object.entries(byType).map(([t, v]) => `<span>${esc(t)}: <b>${t === IN_KIND ? "≈ " : ""}${inr(v)}</b></span>`).join("")}</div>
+      <table class="p">
+        <thead><tr><th class="c">#</th><th>Date</th><th>Type</th><th>From</th><th>Details</th><th>Received by</th><th class="n">Amount</th></tr></thead>
+        <tbody>${list.map((d, i) => `<tr><td class="c">${i + 1}</td><td>${esc(fmtDate(d.date))}</td><td><b>${esc(d.type)}</b></td><td>${esc(d.from)}</td><td>${esc(d.note)}</td><td>${esc(d.by)}</td><td class="n">${d.type === IN_KIND ? (d.amount ? "≈ " + inr(d.amount) : "item") : inr(d.amount)}</td></tr>`).join("")}</tbody>
+        <tfoot><tr><td colspan="6" style="text-align:right">Total cash</td><td class="n">${inr(donCash())}</td></tr></tfoot>
+      </table><p class="p-credit">Created by nucant · instagram.com/n4cun1</p>`;
+    closeSheet();
+    const old = document.title;
+    document.title = `Chanda_${YEAR}_Donations`;
     setTimeout(() => { window.print(); document.title = old; }, 50);
   }
 
@@ -971,11 +1199,14 @@
     S.tab = t;
     $(".layout").hidden = t !== "home";
     $("#expView").hidden = t !== "expenses";
+    $("#donView").hidden = t !== "donations";
     if (t === "expenses") renderExp();
+    if (t === "donations") renderDon();
     const ba = $("#btnAdd");
-    if (ba) ba.innerHTML = I.plus + `<span>${t === "expenses" ? "Add expense" : "Add name"}</span>`;
-    const be = $("#btnExp");
-    if (be) { be.classList.toggle("on", t === "expenses"); be.innerHTML = t === "expenses" ? `${I.home}<span>Chanda</span>` : `${I.wallet}<span>Expenses</span>`; }
+    if (ba) ba.innerHTML = I.plus + `<span>${t === "expenses" ? "Add expense" : t === "donations" ? "Add donation" : "Add name"}</span>`;
+    const be = $("#btnExp"), bd = $("#btnDon");
+    if (be) { be.classList.toggle("on", t === "expenses"); be.innerHTML = `${I.wallet}<span>Expenses</span>`; }
+    if (bd) { bd.classList.toggle("on", t === "donations"); bd.innerHTML = `${I.gift}<span>Donations</span>`; }
     $$("[data-tab]", $("#tabbar")).forEach((b) => b.classList.toggle("on", b.dataset.tab === t));
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -1054,12 +1285,14 @@
         <button class="menu-item" data-rep="all"><span>Full register<small>All ${S.records.length} names · every location</small></span>${I.print}</button>
         ${sec ? `<button class="menu-item" data-rep="sec"><span>${esc(secLabel(sec))} only<small>${secRs.length} names</small></span>${I.print}</button>` : ""}
         <button class="menu-item" data-rep="due"><span>Due list for door-to-door<small>${dueRs.length} names${sec ? " in " + esc(secLabel(sec)) : ""} · blank boxes to write in</small></span>${I.print}</button>
+        <button class="menu-item" data-rep="don"><span>Donation report<small>${S.don.length} donations · by type and donor</small></span>${I.print}</button>
         <button class="menu-item" data-rep="exp"><span>Expense report<small>${S.exp.length} expenses · by category, party and date</small></span>${I.print}</button>
         ${shown.length !== S.records.length ? `<button class="menu-item" data-rep="view"><span>Exactly what's on screen<small>${shown.length} names</small></span>${I.print}</button>` : ""}
       </div>`);
     $$("[data-rep]", $("#sheet")).forEach((b) => b.onclick = () => {
       const k = b.dataset.rep;
       if (k === "exp") { printExpenses(); return; }
+      if (k === "don") { printDonations(); return; }
       const rows = k === "all" ? S.records : k === "sec" ? secRs : k === "due" ? dueRs : shown;
       const title = k === "all" ? "Full register" : k === "sec" ? secLabel(sec) : k === "due" ? "Due list" + (sec ? " · " + secLabel(sec) : "") : "Selected list";
       printReport(rows, title);
@@ -1453,21 +1686,22 @@
     $("#btnSettings").onclick = openSettings;
     $("#tabbar").innerHTML = `
       <button data-tab="home" class="on">${I.home}<span>Home</span></button>
-      <button data-tab="history">${I.clock}<span>History</span></button>
+      <button data-tab="donations">${I.gift}<span>Donations</span></button>
       <button data-tab="add" class="tab-add" aria-label="Add name"><i>${I.plus}</i><span>Add</span></button>
       <button data-tab="expenses">${I.wallet}<span>Expenses</span></button>
       <button data-tab="settings">${I.gear}<span>Settings</span></button>`;
     $("#tabbar").onclick = (e) => {
       const b = e.target.closest("[data-tab]"); if (!b) return;
       const t = b.dataset.tab;
-      if (t === "add") (S.tab === "expenses" ? openExpForm() : openAdd());
+      if (t === "add") (S.tab === "expenses" ? openExpForm() : S.tab === "donations" ? openDonForm() : openAdd());
       else if (t === "history") openHistory();
       else if (t === "settings") openSettings();
       else if (t === S.tab) window.scrollTo({ top: 0, behavior: "smooth" });
       else { closeSheet(); setTab(t); }
     };
-    $("#btnAdd").onclick = () => (S.tab === "expenses" ? openExpForm() : openAdd());
+    $("#btnAdd").onclick = () => (S.tab === "expenses" ? openExpForm() : S.tab === "donations" ? openDonForm() : openAdd());
     $("#btnExp").onclick = () => { closeSheet(); setTab(S.tab === "expenses" ? "home" : "expenses"); };
+    $("#btnDon").onclick = () => { closeSheet(); setTab(S.tab === "donations" ? "home" : "donations"); };
     $("#backdrop").onclick = () => closeSheet();
     $("#sheet").addEventListener("click", (e) => { if (e.target.closest("[data-close]")) closeSheet(); });
     document.addEventListener("keydown", (e) => {
@@ -1512,6 +1746,7 @@
       if (!document.hidden && S.pass && S.api && !$("#app").hidden && Date.now() - S.lastLoad > 60000 && $("#sheetWrap").hidden) load(true);
     });
 
+    try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch (e) {}
     setInterval(tickPuja, 1000);
     renderSync();
     setInterval(autoTick, 5000);

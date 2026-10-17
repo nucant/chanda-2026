@@ -496,6 +496,9 @@ label.lbl { font-size: 12.5px; font-weight: 600; color: var(--muted); display: b
 .exp-sum .bal span { color: rgba(255, 255, 255, .85); }
 .exp-sum .bal b { font-size: 30px; }
 .neg { color: var(--accent) !important; }
+.exp-sum .sub { display: block; font-size: 11.5px; color: var(--muted); font-weight: 600; }
+.exp-sum .bal.don { background: radial-gradient(120% 120% at 100% 0%, rgba(255, 199, 92, .3), transparent 55%), linear-gradient(135deg, #0f5e57, #17784a); }
+.tx-amt.kind { color: var(--gold); }
 .exp-add { margin: 12px 0 4px; }
 .exp-box { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 12px 14px; margin-top: 12px; }
 .exp-box h4 { margin: 0 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); }
