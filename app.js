@@ -2,7 +2,7 @@
 (() => {
   "use strict";
 
-  const VERSION = "4.1";
+  const VERSION = "6.0";
   const CFG = window.CHANDA_CONFIG || {};
   const YEAR = CFG.YEAR || 2026;
   const desktopMQ = matchMedia("(min-width: 1024px)");
@@ -970,7 +970,7 @@
     const now = new Date();
     $("#print").innerHTML = `
       <div class="p-head">
-        <div><h1>${esc(CFG.TITLE || "Chanda " + YEAR)} — Expense report</h1><div class="bn">খরচের হিসাব</div></div>
+        ${pdfOrg("Expense report · খরচের হিসাব")}
         <div class="r">${now.toLocaleDateString("en-GB")} ${now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}${S.user ? "<br>by " + esc(S.user) : ""}</div>
       </div>
       <div class="p-sum"><span>Chanda: <b>${inr(got)}</b></span><span>Donations: <b>${inr(donCash())}</b></span><span>Spent: <b>${inr(out)}</b></span><span>Balance: <b>${inr(got + donCash() - out)}</b></span><span>Entries: <b>${list.length}</b></span></div>
@@ -1132,7 +1132,7 @@
     S.don.forEach((d) => { byType[d.type] = (byType[d.type] || 0) + (Number(d.amount) || 0); });
     $("#print").innerHTML = `
       <div class="p-head">
-        <div><h1>${esc(CFG.TITLE || "Chanda " + YEAR)} — Donation report</h1><div class="bn">অনুদান</div></div>
+        ${pdfOrg("Donation report · অনুদান")}
         <div class="r">${now.toLocaleDateString("en-GB")} ${now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}${S.user ? "<br>by " + esc(S.user) : ""}</div>
       </div>
       <div class="p-sum"><span>Cash donations: <b>${inr(donCash())}</b></span><span>Entries: <b>${list.length}</b></span></div>
@@ -1305,7 +1305,7 @@
     const now = new Date();
     $("#print").innerHTML = `
       <div class="p-head">
-        <div><h1>${esc(CFG.TITLE || "Chanda " + YEAR)} — ${esc(title)}</h1><div class="bn">${esc(CFG.TITLE_BN || "")}</div></div>
+        ${pdfOrg("Chanda " + YEAR + " · " + title)}
         <div class="r">${now.toLocaleDateString("en-GB")} ${now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}${S.user ? "<br>by " + esc(S.user) : ""}</div>
       </div>
       <div class="p-sum">
@@ -1334,7 +1334,9 @@
     closeSheet(true);
     const g = $("#gate");
     g.hidden = false;
-    g.innerHTML = `<div class="gate-brand"><img src="icon.svg" alt=""><b>${esc(CFG.TITLE || "Chanda " + YEAR)}</b><span>v${VERSION}</span></div>${inner}`;
+    g.innerHTML = `<div class="gate-org">${window.BRAND ? `<div class="gate-emblem">${BRAND.emblem()}</div>` : ""}
+      <b class="bn">${esc(CFG.ORG_BN || "")}</b><span>${esc((CFG.ORG_EN || "").toUpperCase())}</span></div>${inner}
+      <div class="gate-ver">Chanda ${YEAR} · v${VERSION}</div>`;
     applyTheme();
   }
 
@@ -1642,6 +1644,10 @@
   }
   const B = (t) => `<b>${esc(t)}</b>`;
 
+  // committee header for every PDF
+  const pdfOrg = (what) => `<div class="p-org">${window.BRAND ? `<div class="p-emblem">${BRAND.emblem()}</div>` : ""}
+    <div><h1>${esc(CFG.ORG_EN || "")}</h1><div class="bn p-bn">${esc(CFG.ORG_BN || "")}</div><div class="p-what">${esc(what)}</div></div></div>`;
+
   // ---------- watermark ----------
   const CREDIT = `<div class="credit">Created by <b>nucant</b>
     <span><a href="https://instagram.com/n4cun1" target="_blank" rel="noopener">Instagram</a> ·
@@ -1660,7 +1666,7 @@
 
   // ---------- boot ----------
   function boot() {
-    document.title = CFG.TITLE || document.title;
+    document.title = (CFG.ORG_EN || CFG.TITLE || "Chanda") + " · Chanda " + YEAR;
     $("#title").innerHTML = `${esc(CFG.TITLE || "Chanda " + YEAR)}<sup>v${VERSION.split(".")[0]}</sup>`;
     $("#titleBn").textContent = CFG.TITLE_BN || "";
     $("#btnRefresh").innerHTML = I.refresh;

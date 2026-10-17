@@ -3,8 +3,10 @@
 window.CHANDA_CONFIG = {
   API_URL: "https://script.google.com/macros/s/AKfycbwsLtxL1HaHbnDEuLbE9keB3VQH3fRxxCxOLQB6lDJKeVMDgJ3wy9hTxemnxl81DPfrtg/exec",
   YEAR: 2026,
-  TITLE: "Chanda 2026",
-  TITLE_BN: "দুর্গাপূজার চাঁদা",
+  TITLE: "Madarat Uttarpara",
+  TITLE_BN: "দুর্গোৎসব কমিটি · Chanda 2026",
+  ORG_EN: "Madarat Uttarpara Durgotsav Committee",
+  ORG_BN: "মাদারাট উত্তরপাড়া দুর্গোৎসব কমিটি",
   COLLECTORS: ["BABAI", "BUBAI", "SUVO", "PAPUN", "SOURAV", "BAPON", "TUBAI", "RAJU"],
   SHEET_URL: "https://docs.google.com/spreadsheets/d/12RNmDQBZHLUf4Pa7nZobkVCmtPfMU7TgvJ3vyurqVZo/edit?gid=0#gid=0",
 

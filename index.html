@@ -3,38 +3,40 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Chanda 2026</title>
-  <meta name="description" content="Durga Puja chanda collection register">
+  <title>Madarat Uttarpara Durgotsav Committee · Chanda 2026</title>
+  <meta name="description" content="মাদারাট উত্তরপাড়া দুর্গোৎসব কমিটি — Madarat Uttarpara Durgotsav Committee · chanda, donations and expenses">
   <meta name="theme-color" content="#B3261E">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="Chanda">
+  <meta name="apple-mobile-web-app-title" content="Madarat Puja">
   <meta name="format-detection" content="telephone=no">
-  <link rel="manifest" href="manifest.webmanifest?v=3">
-  <link rel="icon" href="icon.svg?v=3" type="image/svg+xml">
-  <link rel="icon" href="favicon-32.png?v=3" sizes="32x32" type="image/png">
-  <link rel="apple-touch-icon" href="apple-touch-icon.png?v=3">
+  <link rel="manifest" href="manifest.webmanifest?v=7">
+  <link rel="icon" href="favicon-32.png?v=7" sizes="32x32" type="image/png">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png?v=7">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="author" content="nucant">
   <!-- link preview (WhatsApp / Facebook / X) -->
-  <meta property="og:title" content="Chanda 2026 · দুর্গাপূজার চাঁদা">
-  <meta property="og:description" content="Durga Puja chanda collection, expenses and countdown — created by nucant">
-  <meta property="og:image" content="https://nucant.github.io/chanda-2026/icon-512.png?v=3">
+  <meta property="og:title" content="মাদারাট উত্তরপাড়া দুর্গোৎসব কমিটি · Madarat Uttarpara Durgotsav Committee">
+  <meta property="og:description" content="Durga Puja 2026 · chanda, donations, expenses and countdown — created by nucant">
+  <meta property="og:image" content="https://nucant.github.io/chanda-2026/icon-512.jpg?v=7">
   <meta property="og:type" content="website">
   <meta name="twitter:card" content="summary">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=4.1">
-  <script src="config.js?v=4.1"></script>
-  <script src="app.js?v=4.1" defer></script>
+  <link rel="stylesheet" href="style.css?v=7.0">
+  <script src="brand.js?v=7.0"></script>
+  <script src="config.js?v=7.0"></script>
+  <script src="app.js?v=7.0" defer></script>
 </head>
 <body>
   <!-- loading screen -->
   <div id="splash" class="splash" aria-label="Loading">
-    <img src="icon.svg" alt="" class="splash-logo">
-    <b>Chanda 2026</b>
-    <span class="bn">শুভ শারদীয়া</span>
+    <div class="splash-emblem" id="splashLogo"></div>
+    <script>document.getElementById("splashLogo").innerHTML = BRAND.emblem();</script>
+    <b class="bn">মাদারাট উত্তরপাড়া দুর্গোৎসব কমিটি</b>
+    <span>MADARAT UTTARPARA DURGOTSAV COMMITTEE</span>
+    <em class="bn">শুভ শারদীয়া · Chanda 2026</em>
     <div class="splash-bar"><i></i></div>
   </div>
   <!-- Netflix-style profile picker + password -->
@@ -44,7 +46,7 @@
     <header class="top">
       <div class="top-row">
         <div class="brand">
-          <img src="icon.svg" alt="" class="brand-logo">
+          <img src="icon-192.png?v=7" alt="" class="brand-logo">
           <div>
             <h1 id="title">Chanda 2026</h1>
             <p id="titleBn" class="bn">দুর্গাপূজার চাঁদা</p>
