@@ -2,7 +2,7 @@
 (() => {
   "use strict";
 
-  const VERSION = "2.0";
+  const VERSION = "4.1";
   const CFG = window.CHANDA_CONFIG || {};
   const YEAR = CFG.YEAR || 2026;
   const desktopMQ = matchMedia("(min-width: 1024px)");
@@ -853,7 +853,7 @@
       <div class="chips exp-chips">${chips.map(([v, t]) => `<button class="chip ${S.expFilter === v ? "on" : ""}" data-ef="${esc(v)}">${esc(t)}</button>`).join("")}
         ${S.expFilter.startsWith("party:") ? `<button class="chip on" data-ef="${esc(S.expFilter)}">${esc(S.expFilter.slice(6))}</button>` : ""}</div>
       <div class="exp-list">${rows || `<div class="empty"><b>No expenses yet</b>Tap “Add expense” to record the first one.</div>`}</div>
-      ${list.length ? `<p class="list-end">${list.length} expenses · ${inr(spent(list))}</p>` : ""}${CREDIT}</div>`;
+      ${list.length ? `<p class="list-end">${list.length} expense${list.length === 1 ? "" : "s"} · ${inr(spent(list))}</p>` : ""}${CREDIT}</div>`;
     $("#expAddBtn").onclick = () => openExpForm();
     $$("[data-ef]", el).forEach((b) => b.onclick = () => {
       S.expFilter = S.expFilter === b.dataset.ef && b.dataset.ef !== "all" ? "all" : b.dataset.ef;
@@ -1036,7 +1036,7 @@
       </div><div class="exp-right">
       <div class="chips exp-chips">${chips.map(([v, t]) => `<button class="chip ${S.donFilter === v ? "on" : ""}" data-df="${esc(v)}">${esc(t)}</button>`).join("")}</div>
       <div class="exp-list">${rows || `<div class="empty"><b>No donations yet</b>Tap “Add donation” to record cash, govt support, sponsors or items.</div>`}</div>
-      ${list.length ? `<p class="list-end">${list.length} donations · ${inr(donCash(list))} cash</p>` : ""}${CREDIT}</div>`;
+      ${list.length ? `<p class="list-end">${list.length} donation${list.length === 1 ? "" : "s"} · ${inr(donCash(list))} cash</p>` : ""}${CREDIT}</div>`;
     $("#donAddBtn").onclick = () => openDonForm();
     $$("[data-df]", el).forEach((b) => b.onclick = () => { S.donFilter = S.donFilter === b.dataset.df && b.dataset.df !== "all" ? "all" : b.dataset.df; renderDon(); });
     $$("[data-don]", el).forEach((b) => b.onclick = () => {
@@ -1661,7 +1661,7 @@
   // ---------- boot ----------
   function boot() {
     document.title = CFG.TITLE || document.title;
-    $("#title").innerHTML = `${esc(CFG.TITLE || "Chanda " + YEAR)}<sup>v2</sup>`;
+    $("#title").innerHTML = `${esc(CFG.TITLE || "Chanda " + YEAR)}<sup>v${VERSION.split(".")[0]}</sup>`;
     $("#titleBn").textContent = CFG.TITLE_BN || "";
     $("#btnRefresh").innerHTML = I.refresh;
     $("#btnHistory").innerHTML = I.clock;
